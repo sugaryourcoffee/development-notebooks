@@ -241,8 +241,8 @@ What's next?
 
 As a next step we create our production development. _Apache_ applications live usually in `/var/www/`. Therefore we create the directory `/var/www/secondhand`.
 
-Configure Apache 2 to deploy secondhand (production)
------------------------------------------------------
+First deployment of _Secondhand_ (staging)
+------------------------------------------
 
 Now we go the next step towards production. Still with manual interaction and we don't have the actual production ready software. We are in the branch _upgrade-to-rails-4.2_. We take it step by step, before we go for automation with _Capistrano_. 
 
@@ -586,6 +586,58 @@ The test with the staging server revealed an error when a user is signing up for
       app/controllers/users_controller.rb:33:in `create'
 
 Regarding this [post](https://github.com/mikel/mail/issues/1550) the error is in the gem `mail 2.8.0`. The development environment didn't raise this error, neither on the development machine nor hosted by _Apache_. Finally it turned out that the development machine had set `config.action_mailer.delivery_method = :test` in `config/environments/development.rb`. This doesn't send e-mails using the `mail` gem. Coming back to the hint in the above mentioned post I have upgraded `mail` to 2.8.1 and it worked. On the development machine I upgraded as well and checked that the tests pass, what they did.
+
+Rewind and start over in _Secondhand_ production 
+--------------------------------------------------
+
+Now we are starting over and following the suggestion of [Phusion Passenger](https://www.phusionpassenger.com/docs/tutorials/deploy_to_production/deploying_your_app/oss/ownserver/ruby/apache/) 
+
+* Create a _Secondhand_ user 
+* Create a directory for production 
+* Clone _Secondhand_ into the directory 
+* Install the gems 
+* Prepare the virtual host in Apache 
+* Re-start Apache 
+
+Deploying updates for Secondhand
+--------------------------------
+
+Before we automate the deployment process with _Capistrano_, we do the excercise of manually deploying updates of _Secondhand_.
+
+It should be straight forward and the condensed deployment of the initial deployment. 
+
+`ssh` into the server 
+
+    $ ssh uranus 
+
+`cd` into the web directory where our application lives
+
+    $ cd /var/www/secondhand 
+
+`pull` the new version from _Github_ 
+
+    $ git pull 
+
+`rbenv` the _Ruby_ version the application runs with. If the wrong _Ruby_ version is selected, you will be hinted. The version is stored in the `.ruby-version`
+
+    $ rbenv 2.7.8 
+
+`bundle` install the required `gem`s without test and development
+
+    $ bundle config --local without test development
+    $ bundle install 
+
+`precompile` the assets 
+
+    $ bundle exec rake assets:precompile RAILS_ENV=production
+
+`migrate` the database 
+
+    $ bundle exec rake db:migrate RAILS_ENV=production
+
+`restart` _Secondhand_
+
+    $ touch tmp/restart.txt 
 
 Now we should be ready to deploy remotely with _Capistrano_.
 
