@@ -251,7 +251,7 @@ During development we already have managed _Secondhand_ with _git_. We now clone
 What we do in this section is 
 
 * create our web directory `/var/www/secondhand`
-* clone our _Secondhand_ branch _upgrade-to-rails-4.2_ into `/var/www/seconhand`
+* clone our _Secondhand_ branch _upgrade-to-rails-4.2_ into `/var/www/secondhand`
 * install the gems required by _Secondhand_
 * prepare the production environment
 * install _MySQL_
@@ -272,9 +272,9 @@ This directory is owned by `root`, in order to deploy we need to change the owne
 
 ### Clone _Secondhand_ to the web directory 
 
-Next we `cd /var/www/secondhand` and clone the application under `secondhand` into `code`
+Next we `cd /var/www/secondhand` and clone the application under `secondhand` into `staging`
 
-    $ git clone https://github.com/sugaryourcoffee/secondhand/ code
+    $ git clone https://github.com/sugaryourcoffee/secondhand/ staging
 
 We still want to test the upgraded _Secondhand_, that is why we have to checkout the branch `upgrade-to-rails-4.2` first 
 
@@ -397,7 +397,19 @@ Now we are done
     mysql> exit 
     Bye 
 
-Now that the database is created we want to create the tables based on our database migrations. Our `config/database.yml` is the information that is used to create the database. The part that is interesting for the next step is this:
+Now that the database is created we want to create the tables based on our database migrations. Our `config/database.yml` is the information that is used to create the database. But this hasn't been cloned, as it is not managed by, because it contains the database passwords.
+
+We copy the `database.yml` and the `secret_tolken.rb` file from our development machine to the server with 
+
+    devops@development $ scp database.yml secret_token.rb secondhand@uranus:.
+
+Then on the server we move the `database.yml` file into `/var/www/secondhand/production/config/` and `secret_token.rb` to `/var/www/secondhand/production/config/intializers/`. The `secret_token.rb` contains the environment variable `SECRET_KEY_BASE` which is read in `secrets.yml`.
+
+    secondhand $ mv ~/database.yml /var/www/secondhand/production/config/.
+    secondhand $ mv ~/secret_token.rb /var/www/secondhand/production/config/intializers/.
+
+
+The part that is interesting for the next step is this:
 
     staging:                          # staging is the environment we want to use with following settings
       adapter: mysql2                 # the mysql2 gem that is bridging between Secondhand and the MySQL database
@@ -462,7 +474,7 @@ If it happens that the password in the `config/database.yml` file doesn't match 
 
 Check that the user and password match with the one you have given access to the `secondhand_staging` database.
 
-Just our of interest we want to look into _MySQL_ and look at our database.
+Just out of interest we want to look into _MySQL_ and look at our database.
 
     $ mysql -upierre -p 
     Enter password:
@@ -596,8 +608,157 @@ Now we are starting over and following the suggestion of [Phusion Passenger](htt
 * Create a directory for production 
 * Clone _Secondhand_ into the directory 
 * Install the gems 
+* Prepare the environment `database.yml` and `secret_token.rb`
+* Create the database
 * Prepare the virtual host in Apache 
 * Re-start Apache 
+* Checkup _Secondhand_ in production
+* Replacement strategy for old with new production server
+
+### Create a _Secondhand_ user 
+
+We want to create the user that has the name of the application. We do that with `adduser`
+
+    $ sudo adduser secondhand
+    info: Adding user `secondhand' ...
+    info: Selecting UID/GID from range 1000 to 59999 ...
+    info: Adding new group `secondhand' (1001) ...
+    info: Adding new user `secondhand' (1001) with group `secondhand (1001)' ...
+    info: Creating home directory `/home/secondhand' ...
+    info: Copying files from `/etc/skel' ...
+    New password:
+    Retype new password:
+    passwd: password updated successfully
+    Changing the user information for secondhand
+    Enter the new value, or press ENTER for the default
+            Full Name []:
+            Room Number []:
+            Work Phone []: 
+            Home Phone []:
+            Other []:
+    Is the information correct? [Y/n] Y
+    info: Adding new user `secondhand' to supplemental / extra groups `users' ...
+    info: Adding user `secondhand' to group `users' ...
+
+[>TODO: Currently not necessary. Only necessary when we want to ssh without password]
+Looking into the directory of the new user _secondhand_ we see that the `.ssh` file is owened by root.
+
+    $ sudo ls -la ~secondhand/
+    total 24
+    drwxr-x--- 3 secondhand secondhand 4096 Jan 14 09:39 .
+    drwxr-xr-x 4 root       root       4096 Jan 14 09:36 ..
+    -rw-r--r-- 1 secondhand secondhand  220 Jan 14 09:36 .bash_logout
+    -rw-r--r-- 1 secondhand secondhand 3771 Jan 14 09:36 .bashrc
+    -rw-r--r-- 1 secondhand secondhand  807 Jan 14 09:36 .profile
+    drwxr-xr-x 2 root       root       4096 Jan 14 09:39 .ssh
+
+We change that, so it is owned by _secondhand_
+
+    $ sudo chown secondhand: ~secondhand/.ssh 
+
+Additionally we want to give only user _secondhand_ access
+
+    $ sudo chmod 700 ~secondhand/.ssh 
+[<TODO: Currently not necessary. Only necessary when we want to ssh without password]
+
+Create a Directory for Production 
+---------------------------------
+
+We have created a staging directory where our application for the _staging_ phase is hosted. We now will create a directory for the _production_ version of _Secondhand_.
+
+We want to operate now as the _secondhand_ user, but first we need to change the ownership of `/var/www/secondhand` to the _secondhand_ user.
+
+    $ sudo chown secondhand: /var/www/secondhand/ 
+
+From now on we can operate on the `/var/www/secondhand` directory as the _secondhand_ user. We change identity with 
+
+    $ sudo -u secondhand -H bash -l 
+
+What this does is loging in as user _secondhand_ (`-u secondhand`) using the home-directory `~secondhand` (`-H`) and creates a `bash` login shell (`basl -l`) as if the user _secondhand_ would have logged in regularly with username and password.
+
+We now create as user _secondhand_ the production directory 
+
+    secondhand $ cd /var/www/secondhand/
+    secondhand $ mkdir production
+
+Clone _Secondhand_ into the production directory 
+------------------------------------------------
+
+We now change into the production directory and clone _Secondhand_ from _github_ into the production directory.
+
+    secondhand $ git clone https://github.com/sugaryourcoffee/secondhand.git .
+    Cloning into '.'...
+    remote: Enumerating objects: 7095, done.
+    remote: Counting objects: 100% (549/549), done.
+    remote: Compressing objects: 100% (283/283), done.
+    remote: Total 7095 (delta 312), reused 473 (delta 246), pack-reused 6546 (from 1)
+    Receiving objects: 100% (7095/7095), 2.26 MiB | 8.92 MiB/s, done.
+    Resolving deltas: 100% (5072/5072), done.
+
+Install the gems 
+----------------
+
+Now we install the `gem`s that are needed for _Secondhand_ to run. But before we can do that we need to install `rbenv` and install _Ruby_ first. Because in our newly created user _secondhand_ we don't have _Ruby_ installed. 
+
+The _Ruby_ version we use for _Secondhand_ is stored in the project directory in `.ruby-version`. If we look into the file we find that we are using _Ruby -v 2.7.8_. This is the version we will install. How _rbenv_ and _Ruby_ can be installed is explained in [install-rbenv-and-ruby](install-rbenv-and-ruby.md). 
+
+Now having _rbenv_ and _Ruby 2.7.8_ available the next step is to install `bundler`.
+
+    secondhand $ gem install bundler -v 1.17.3
+
+Why do we install `bundler -v 1.17.3`. If we look into the `Gemfile.lock` we find `bundler (>= 1.3.0, < 2.0)`. If we go to _Rubygems_ and look up the latest version between 1.3.0 and 2.0, then we find 1.17.3. 
+
+We verfy that we have installed `bundler` with version 1.17.3. 
+
+    secondhand $ bundler -v 
+    Bundler version 1.17.3 
+
+Now we are prepared to install the project's gems, but we don't need the gems we only use for development and test.
+
+    secondhand $ bundler install --without development test 
+
+### Prepair the environment variables 
+
+We copy the `database.yml` and the `secret_tolken.rb` file from our development machine to the server with 
+
+    devops@development $ scp database.yml secret_token.rb secondhand@uranus:.
+
+The files are now in the home directory of _secondhand_. We move them to the _secondhand_ project directory 
+
+    secondhand $ mv ~/database.yml /var/www/secondhand/production/config/.
+    secondhand $ mv ~/secret_token.rb /var/www/secondhand/production/config/intializers/.
+
+### Create the database 
+
+We have created a staging database. We now create a _MySQL_ user _secondhand_ and a production database in the same way as we did for the staging environment. But as we need the `sudo` command we have to do that with the _devops_ user that has `sudo` rights.
+
+    devops@uranus $ sudo mysql -uroot -p 
+    Enter password
+    mysql> create database secondhand_production default character set utf8mb4 collate utf8mb4_0900_ai_ci;
+    Query OK, 1 row affected (0.08 sec)
+    mysql> create user 'secondhand'@'localhost' identified by 'password';
+    Query OK, 0 rows affected (0.07 sec)
+    mysql> grant all privileges on secondhand_production.* to 'secondhand'@'localhost';
+    Query OK, 0 rows affected (0.06 sec)
+    mysql> exit 
+    Bye 
+
+Now instead of running the the migrations (`bundle exec rake db:migrate RAILS_ENV=production`), we rather copy the database from the current production server.
+
+    devops@mercury $ mysqldump -uroot -p --quick --single-transaction --triggers --master-data secondhand_production | gzip > secondhand-production.sql.gz 
+    devops@mercury $ scp secondhand-production.sql.gz secondhand@uranus:.
+
+Next we restore the database to our database on _uranus_.
+
+    devops@uranus $ gunzip < secondhand-production.sql.gz | mysql -uroot -p secondhand-production
+
+Note:
+If the error raises `ERROR 1698 (28000): Access denied for user 'root'@'localhost'`, then look at [Run MySLQ withou sudo](run-MySQL-without-sudo.md).
+
+Prepare the virtual host in Apache 
+----------------------------------
+
+
 
 Deploying updates for Secondhand
 --------------------------------
