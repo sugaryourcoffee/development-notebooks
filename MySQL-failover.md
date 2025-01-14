@@ -1,237 +1,260 @@
-# Install Ubuntu Server on a Dell Poweredge T130 server hardware
-To install Ubuntu Server there are some easy steps to follow. We are 
-using a Dell PowerEdge T130. The manuals can be found at [dell.com/poweredgemanuals](http://www.dell.com/support/home/de/de/debsdt1/product-support/product/poweredge-t130/research)
+Fail over MySQL and Rails
+========================
+We have two machines with each having a MySQL server and the Rails application
+running Secondhand. One of the servers is the master with IP address 
+192.168.178.61 the other is the slave with the IP address 192.168.178.66. 
+The master database will be mirrored to the slave database.
+In case our master is crashing we want to switch over to the slave server. 
 
-The current Secondhand application is best hosted on a Ubuntu Server 14.04 LTS
-but we will also point out some hints in regard to 16.04 LTS.
+In order to implement such configuration we have to conduct following step 
+assuming we have both servers running with MySQL and Secondhand
 
-1. Download ISO file from [ubuntu.com](http://www.ubuntu.com/download/server/install-ubuntu-server)
-2. Burn CD with the downloaded ISO file
-3. Start the server hardware from CD
-4. Follow the instructions prompted by the installation guide
+* Configure the master server
+  * Set the MySQL server ID on the master server
+  * Set the log file on the MySQL master server
+  * Bind the IP address on the master that is visible to the slave server
+  * Restart the server
+  * Add user and set permission on MySQL master to give the MySQL slave access
+* Create and copy the current master database dump to the slave server
+* Configure the slave
+  * Check the connection from the slave to the master database
+  * On the MySQL slave set the server ID and bind address
+  * Configure the master server
+  * Add same user on slave with access rights for master replication
+* Restore the master database on the MySQL slave
+* Start replication on the MySQL slave
 
-When prompted for _Software selection_ select 
+Configure the MySQL server
+--------------------------
+Log into the MySQL master server
 
-* Mail server
-* Standard system utilities
-* OpenSSH server
+    development$ ssh mercury
 
-# Install Ruby on Rails server environment
+On the MySQL server we have to set the server ID and the log file. We do that
+in `/etc/mysql/my.cnf` by uncommenting these two lines
 
-1. Install Apache 2
-2. Create the application directory
-3. Install MySQL
-4. Install Posfix
-5. Setup printer
-6. Install Nodejs
-7. Install RVM
-8. Install Rails
-9. Install Git
-10. Install Passenger
-11. Configure Apache 2
+    server-id = 1
+    log_bin   = /var/log/mysql/mysql-bin.log
 
-## Create an application directory
-Apache 2's default application directory is at `/var/www`. There we add the 
-directory for our secondhand backup application. But before we do this we have
-to change the owner.
+We also have to make the database available to machines other than local host.
+We do that by changing the `bind-address = 172.0.0.1` to the address of the
+master server
 
-This directory is owned by _root_. When we deploy our application we need to 
-have it owned by the user deploying which is in our case the deployment user.
-In order to enable the deployment user to deploy we change the owner and give it
-write access
+    bind-address = 192.168.178.61
 
-    $ sudo chgrp deployers /var/www
-    $ sudo chmod g+w /var/www
+After changing the configuration we have to restart the server
 
-Now we can create the directory which will be owned by the user
+    mercury$ sudo service mysql restart
 
-    $ sudo mkdir /var/www/secondhand
+We can check up on the replication with
 
-## Install MySQL
-We have to install MySQL and create the database. Make sure not to only install
-the _mysql-server_ but also the _libmysqlclient-dev_ otherwise bundler will fail
-to install the _mysql2_ gem.
+    mercury$ mysql -uroot -p
+    mysql> show master status;
 
-    $ sudo apt-get install mysql-server libmysqlclient-dev
+Next we create a replication user that is restricted to the rights needed for
+replication
 
-Next we have to create a database
+    mysql> create user 'repl'@'%' identified by 'slavepass';
+    mysql> grant replication slave on *.* to 'repl'@'%';
 
-    $ mysql -uroot -p
-    mysql> create database secondhand_production default character set utf8;
-    mysql> grant all privileges on secondhand_production.* 
-        -> to 'pierre'@'localhost' identified by 'secret';
+Copy master database to the slave database
+------------------------------------------
+We dump the production database and then copy the dump file from the master to
+the slave server. On the slave server we restore the dump file into the slave
+database.
+
+    development$ ssh mercury
+    mercury$ mysqldump -uroot -p --quick --single-transaction --triggers \
+      --master-data secondhand_production | gzip > secondhand-repl.sql.gz
+    mercury$ scp secondhand-repl.sql.gz user@uranus:secondhand-repl.sql.gz
+    mercury$ exit
+
+Configure the MySQL slave
+-------------------------
+We first check that we can access the master from the slave server.
+
+    development$ ssh uranus
+    uranus$ mysql -urepl -pslavepass -h192.168.178.61 --port 3306 \
+    -e "show databases"
+
+This should list the databases on the server.
+
+The configuration on the slave is similar. We first edit the `/etc/mysql/my.cnf`
+by setting the *server-id* and the *bind-address* of the slave
+
+    uranus$ sudo vi /etc/mysql/my.cnf
+
+We adjust my.cnf to
+
+    server-id = 2
+    bind-address = 192.168.178.66
+
+The server-id has to be unique. We just increment for each slave the IP address.
+Our master has the server-id 1 and our slave 2. If we add additional slaves we
+just increment each slave's server-id by 1.
+
+After the configuration we have to restart the server in order the changes take
+effect
+
+    uranus$ sudo service mysql restart
+
+Now in MySQL we tell the slave where to find the master server and with which
+user to connect
+
+    uranus$ mysql -uroot -p
+    mysql> change master to
+        -> master_host='192.168.178.61',
+        -> master_user='repl',
+        -> master_password='slavepass';
+
+Add the replication user also on the slave with the same credentials
+
+    mysql> create user 'repl'@'%' identified by 'slavepass';
     mysql> exit
 
-## Install Passenger
+Note: If your MySQL server or your slave gets a new IP address you have to 
+adjust the `bind-address` in **/etc/mysql/my.conf** and in **mysql** 
+accordingly.
 
-    $ gem install passenger
-    $ passenger-install-apache2-module
+Otherwise you will get an error if you call the secondhand web page *something went wrong*. 
+The error in log/production.log is:
 
-There might be missing some modules and the installer will tell which are
-missing and have to be installed.
+`Mysql2::Error (Can't connect to local MySQL server through socket '/var/run/mysqld/mysqld.sock' (2))`
 
-    $ sudo apt-get install libcurl4-openssl-dev apache2-threaded-dev \
-    libapr1-dev libaprutil1-dev
+And if you start MySQL from the command line with `$ mysql` you will get the same error with slightly different text:
 
-Even though the installer might tell you to install `apache2-threaded-dev` in
-Ubuntu 16.04 you have to use `apache2-dev`.
+`ERROR 2002 (HY000): Can't connect to local MySQL server through socket '/var/run/mysqld/mysqld.sock' (2)`
 
-After `passenger-install-apache2-module` has run you will be prompted with
-following message:
+Restore database on slave server
+--------------------------------
+We now restore the previously dumped database from the server on the slave. This
+will include the log file name and log file position.
 
-    Please edit your Apache configuration file, and add these lines:
-    LoadModule passenger_module \
-    /home/pierre/.rvm/gems/ruby-2.0.0-p648@rails4013/gems/passenger-5.0.30\
-    /buildout/apache2/mod_passenger.so
-    <IfModule mod_passenger.c>
-      PassengerRoot /home/pierre/.rvm/gems/ruby-2.0.0-p648@rails4013/gems\
-      /passenger-5.0.30
-      PassengerDefaultRuby /home/pierre/.rvm/gems/ruby-2.0.0-p648@rails4013\
-      /wrappers/ruby
-    </IfModule>
-    
-    After you restart Apache, you are ready to deploy any number of web
-    applications on Apache, with a minimum amount of configuration!
-    
-    Press ENTER when you are done editing.
+    development$ ssh uranus
 
-Add the above code snippet to `/etc/apache2/conf-available/passenger.conf` and 
-run `$ sudo a2enconf passenger` and `service apache2 reload`.
+Before we restore the database we have to create the database where we want to
+restore it to
 
-## Configure Apache 2
-Create a virtual host in `/etc/apache2/sites-available/secondhand.conf`
+    uranus$ mysql -uroot -p
+    mysql> create database secondhand_production default character set utf8;
+    mysql> grant all privileges to 'pierre'@'localhost' identified by 'secret';
+    mysql> exit
 
-    <VirtualHost *:8086>
-      DocumentRoot /var/www/secondhand/current/public
-      Servername backup.secondhand.jupiter
-      PassengerRuby /home/pierre/.rvm/gems/ruby-2.0.0-p648@rails4013/wrappers/\
-      ruby 
-      <Directory /var/www/secondhand/public>
-        AllowOverride all
-        Options -MultiViews
-        Require all granted
-      </Directory>
-      RackEnv backup
-    </VirtualHost>
+Now we restore the database into secondhand\_production
 
-Then run `$ sudo a2ensite secondhand` and `service apache2 reload`.
+    uranus$ gunzip < secondhand-repl.sql.gz | mysql -uroot -p \
+    secondhand_production
 
-# Adjust the development environment
-In this step we conduct following ajustments
+Start replication
+-----------------
+On the slave server uranus we start the replication
 
-1. Create a backup environment in `config/environments/backup.rb`
-2. Add the _backup_ stage to `config/deploy.rb`
-3. Create a backup deployment file in `config/deploy/backup.rb`
-4. Add a _backup_ group to `config/database.yml`
-5. Add the server hostname _backup.secondhand.jupiter_ to `/etc/hosts`
+    uranus$ mysql -uroot -p
+    mysql> start slave;
 
-## Adjust `config/deploy/backup.rb`
-Set the `rvm_ruby_string` to the gemset where we have installed rails
+We can check the slave status with
 
-    set :rvm_ruby_string, '2.0.0@rails4013'
+    mysql> show slave status\G;
 
-# Deploy to the backup server
-During deployment the application is downloaded from Github. To download from
-Github a rsa key is required that is known to Github. We use the key from our
-development machine by copying it to the backup server
+Adding additional slaves
+------------------------
+If we want to have additional slaves for replicating the master database then we
+just follow the steps above, that is
 
-    $ scp ~/.ssh/id_rsa me@jupiter:key
-    $ ssh jupiter
-    $ mv key ~/.ssh/id_rsa
+On the master server
 
-Next we start the ssh agent with `$ eval $(ssh-agent)` and issue `$ ssh-add`.
-After entering the passphrase we should be good to deploy.
+* dump the master database and copy it to the new slave server
 
-One final tweak is to ommit entering a passphrase when we deploy. To do that we
-copy the public key from our development machine to our backup server
+On the slave server
 
-    $ scp ~/.ssh/id_rsa.pub me@jupiter:key
-    $ ssh jupiter
-    $ cat key >> ~/.ssh/authorized_keys
+* set `server-id` to a unique positive integer and set the bind-address to the
+  slave server's IP address. Both is done in /etc/mysql/my.cnf 
+* restart the MySQL server
+* configure the master server in mysql
+* create the database in MySQL
+* restore the dumped database into MySQL
+* start the replication
 
-Back on the development resp. deployment machine we initially issue following 
-commands to prepare deployment
+Error Messages
+--------------
+If you get an error message saying
 
-    $ cap backup deploy:setup
-    $ cap backup deploy:check
-    $ cap backup deploy:cold
+    Mysql2::Error (Can't connect to local MySQL server through socket 
+    '/var/run/mysqld/mysqld.sock' (2)):
 
-## Errors during deployment
-Here are listed some errors that might come up during deployment. Some specific
-to Ubunter 16.04 Server LTS.
+Then you probably have the wrong IP address in you MySQL slave server. Check 
+that the IP address in /etc/mysql/my.conf is the IP address of the slave server
+itself.
 
-### No connection to Github
-If the deployment is canceled because of an credential issue try 
-`ssh-add -l`. If it doesn't return a fingerprint but instead saying 
-`The agent has no identities` then redo `ssh-add` but this time with the path to
-you key `$ ssh-add .ssh/id_rsa`. Then check on the server wheather you can
-connect to github with `$ ssh -T git@github.com`.
+Changing IP address might happen when you retrieve your IP address from a new
+DHCP server.
 
-### MySQL gem cannot be installed
-When capistrano is executing bunlder on the backup server an error might occur
-saying
+### Fatal Error 1236
+The master and slave might get out of sync if the slave is shut down for a
+while or the connection is interrupted. As long as the `Master_Log_File` value
+on the slave is still available on the master the slave will catch up the
+master. If the `Master_Log_File` is overridden then `show slave status\G`
+will have the value `Last_IO_Errno: 1236` and the `Last_IO_Error: Got fatal
+error 1236 from master when reading data from binary log: 'Could not find first log file name in binary log index file'`. It might help to reset the
+slave with 
 
-    * 2016-08-18 14:06:30 executing `bundle:install'                            
-    * executing "cd /var/www/secondhand/releases/20160818120630 && bundle 
-    install --gemfile /var/www/secondhand/releases/20160818120630/Gemfile 
-    --path /var/www/secondhand/shared/bundle --deployment --quiet 
-    --without development test"         
-      servers: ["backup.secondhand.jupiter"]                                    
-      [backup.secondhand.jupiter] executing command                             
-    ** [out :: backup.secondhand.jupiter] An error occurred while installing 
-    mysql2 (0.3.20), and Bundler cannot continue.                               
-    ** [out :: backup.secondhand.jupiter] Make sure that 
-   `gem install mysql2 -v '0.3.20'` succeeds before bundling.                   
-      command finished in 12435ms                                               
-    *** [deploy:update_code] rolling back
+    mysql> stop slave;
+    mysql> reset slave;
+    mysql> start slave;
+    mysql> show slave status\G;
 
-This most likely is because you are missing `libmysqlclient_dev` on the backup
-server. To resolve this issue
+If the error is gone. The slave might be gradually synced with the master. If
+data is not propperly synced then dump the database on the server and restore
+it on the slave as shown [Copy master database to the slave database](#copy-master-database-to-the-slave-database) and in [Restore database on slave server](#restore-database-on-slave-server).
 
-    $ sudo apt-get install libmysqlclient-dev
+### Last_SQL_Errno: 1133
+The error message
+    Last_SQL_Error: Error 'Can't find any matching row in the user table' on 
+    query. Detault database: ''. Query: 'SET PASSWORD FOR 'repl'@'%'='*....''
 
-### MySQL access denied
-If the deployment is aborted during _deploy:migrate_ with the error 
-`MySQL2::Error, Access denied for user` then you probably don't have created
-the database.
+indicates that on the slave machine the user 'repl'@'%' is not set. The repl 
+user needs to be set on each of the machines that are part of the replication.
 
-### Mysql2::Error: All parts of a PRIMARY KEY must be NOT NULL
-Ubuntu Server 16.04 LTS ships with MySQL 5.7.13. Since version 5.7 it is not 
-allowed to have PRIMARY KEYs to be NULL. Here we are using Rails 4.0.13 and we
-have to monkey patch the _Mysql2Adapter_ to fix this. In later versions 4.1 and
-above this is fixed.
+### Could not initialize master info structure 
 
-The error during deployment is showing
+If the following error message is raised while recovering the database to the backup server 
 
-    * 2016-08-18 15:22:36 executing `deploy:migrate'                          
-    * executing "cd /var/www/secondhand/releases/20160818132225 && bundle exec
-    rake RAILS_ENV=backup  db:migrate"                                        
-      servers: ["backup.secondhand.jupiter"]
-      [backup.secondhand.jupiter] executing command
-    *** [err :: backup.secondhand.jupiter] rake aborted!
-    *** [err :: backup.secondhand.jupiter] StandardError: An error has occurred,
-    all later migrations canceled:
-    *** [err :: backup.secondhand.jupiter]
-    *** [err :: backup.secondhand.jupiter] Mysql2::Error: All parts of a PRIMARY
-    KEY must be NOT NULL; if you need NULL in a key, use UNIQUE 
-    instead: CREATE TABLE `events` (`id` int(11) DEFAULT NULL auto_increment 
-    PRIMARY KEY, `title` varchar(255), `event_date` datetime, `location` 
-    varchar(255), `fee` decimal(2,2), `deduction` decimal(2,2), `provision` 
-    decimal(2,2), `max_lists` int(11), `max_items_per_list` int(11), 
-    `created_at` datetime, `updated_at` datetime) ENGINE=InnoDB 
+    gunzip < secondhand-repl.sql.gz | mysql -uroot -p secondhand_production
+    Enter password:
+    ERROR 1201 (HY000) at line 22: Could not initialize master info structure; more error messages can be found in the MySQL error log
+    pierre@jupiter:~$ gunzip < secondhand-repl.sql.gz | mysql -uroot -p secondhand_production
+    Enter password:
+    ERROR 1201 (HY000) at line 22: Could not initialize master info structure; more error messages can be found in the MySQL error log
 
-The monkey patch is to be saved to `config/initializers/mysql_adapter`
+This can be solved by **resetting the slave**
 
-    class ActiveRecord::ConnectionAdapters::Mysql2Adapter
-      NATIVE_DATABASE_TYPES[:primary_key] = "int(11) auto_increment PRIMARY KEY"
-    end
+    $ mysql -uroot -p
+    Enter password:
+    mysql> use secondhand_production;
+    Reading table information for completion of table and column names
+    You can turn off this feature to get a quicker startup with -A
+    Database changed
+    mysql> reset slave;
+    Query OK, 0 rows affected (0.28 sec)
+    mysql> exit
+    Bye
 
-But this is not reliably working in all cases. If it doesn't consider upgrading 
-to Rais 4.1 or using Ubuntu 14.04 Server.
+The we repeat the command to recover the database to the backup server database 
 
-# Configuring Failover
-In case our secondhand master server mercury is crashing we want to point to our
-secondhand backup server jupiter. We already installed secondhand on jupiter.
-Next we need to start replicating the database from mercury. How this can be
-accomplished is described in [MySQL-failover](https://github.com/sugaryourcoffee/secondhand/blob/master/doc/MySQL-failover.md).
+    $ gunzip < secondhand-repl.sql.gz | mysql -uroot -p secondhand_production
+    Enter password:
+    mysql> use secondhand_production;
+    Reading table information for completion of table and column names
+    You can turn off this feature to get a quicker startup with -A
+    Database changed
+    mysql> start slave;
+    Query OK, 0 rows affected (0.00 sec)
+    mysql> exit 
+    Bye
+
+Sources
+-------
+* [MySQL replication - YouTube](https://www.youtube.com/watch?v=JXDuVypcHNA)
+* [High Performance MySQL - O'Reilly](http://shop.oreilly.com/product/0636920022343.do)
+* [Deploying Rails Applications - Pragmatic Programmer](https://pragprog.com/book/cbdepra/deploying-rails)
 
