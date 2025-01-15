@@ -661,8 +661,7 @@ Additionally we want to give only user _secondhand_ access
     $ sudo chmod 700 ~secondhand/.ssh 
 [<TODO: Currently not necessary. Only necessary when we want to ssh without password]
 
-Create a Directory for Production 
----------------------------------
+### Create a Directory for Production 
 
 We have created a staging directory where our application for the _staging_ phase is hosted. We now will create a directory for the _production_ version of _Secondhand_.
 
@@ -681,8 +680,7 @@ We now create as user _secondhand_ the production directory
     secondhand $ cd /var/www/secondhand/
     secondhand $ mkdir production
 
-Clone _Secondhand_ into the production directory 
-------------------------------------------------
+### Clone _Secondhand_ into the production directory 
 
 We now change into the production directory and clone _Secondhand_ from _github_ into the production directory.
 
@@ -695,8 +693,7 @@ We now change into the production directory and clone _Secondhand_ from _github_
     Receiving objects: 100% (7095/7095), 2.26 MiB | 8.92 MiB/s, done.
     Resolving deltas: 100% (5072/5072), done.
 
-Install the gems 
-----------------
+### Install the gems 
 
 Now we install the `gem`s that are needed for _Secondhand_ to run. But before we can do that we need to install `rbenv` and install _Ruby_ first. Because in our newly created user _secondhand_ we don't have _Ruby_ installed. 
 
@@ -728,6 +725,28 @@ The files are now in the home directory of _secondhand_. We move them to the _se
     secondhand $ mv ~/database.yml /var/www/secondhand/production/config/.
     secondhand $ mv ~/secret_token.rb /var/www/secondhand/production/config/intializers/.
 
+In `database.yml` we need to set the user of the production database to the user _secondhand_ as this is the user under which _Secondhand_ will be operated.
+
+We also need to pre-compile the assets (javascripts, images, ...), because these are not served automatically as it is in production.
+
+    secondhand $ bundle exec rake assets:precompile RAILS_ENV=production
+
+    I, [2025-01-15T11:21:10 #845692]  INFO : Writing /var/www/secondhand/production/public/assets/SugarYourCoffee_48x48-e03201e657796948159abd22f63.png
+    I, [2025-01-15T11:21:10 #845692]  INFO : Writing /var/www/secondhand/production/public/assets/help/Listing_events-18097d422028eb3d9fb9a5f2a2e.png
+    I, [2025-01-15T11:21:10 #845692]  INFO : Writing /var/www/secondhand/production/public/assets/help/New_event-008a4377c31d4e07b0ae332cfd6.png
+    I, [2025-01-15T11:21:10 #845692]  INFO : Writing /var/www/secondhand/production/public/assets/help/account_de-16d3688a3adcbcff19c1f8381f1.png
+    .....
+    I, [2025-01-15T11:21:10 #845692]  INFO : Writing /var/www/secondhand/production/public/assets/help/header-b2290f0ab0b16bff96516034f97.png
+    I, [2025-01-15T11:21:10 #845692]  INFO : Writing /var/www/secondhand/production/public/assets/help/sign_in-040ccb7baf38a181c9dbe25b5125.png
+    .....
+    I, [2025-01-15T11:21:10 #845692]  INFO : Writing /var/www/secondhand/production/public/assets/help/sign_up-eed61cc9a184a1f9a2c0182b8236.png
+    I, [2025-01-15T11:21:17 #845692]  INFO : Writing /var/www/secondhand/production/public/assets/warning-0c47eed02e58ddda6f609affa26c.png
+    I, [2025-01-15T11:21:17 #845692]  INFO : Writing /var/www/secondhand/production/public/assets/glyphicons-halflings-2237053312464924e4a98da31e55.png
+
+It is important if the assets have been pre-compiled and the application is already running to restart the application, so the pre-compiled assets get recognized and used. If you follow along then the application will be started anyway at a later point. 
+
+To restart the application we do `touch /var/www/secondhand/production/tmp/restart.txt`. _Passenger_ listens on that file and if it changes it restarts the application. 
+
 ### Create the database 
 
 We have created a staging database. We now create a _MySQL_ user _secondhand_ and a production database in the same way as we did for the staging environment. But as we need the `sudo` command we have to do that with the _devops_ user that has `sudo` rights.
@@ -755,10 +774,45 @@ Next we restore the database to our database on _uranus_.
 Note:
 If the error raises `ERROR 1698 (28000): Access denied for user 'root'@'localhost'`, then look at [Run MySLQ withou sudo](run-MySQL-without-sudo.md).
 
-Prepare the virtual host in Apache 
-----------------------------------
+### Prepare the virtual host in Apache 
 
+We set up our _Apache_ configuration as before. Copy the `/etc/apache2/sites-available/secondhand-staging.conf` to `/etc/apache2/sites-available/secondhand-production.conf`. The next steps need `sudo` privileges, and we conduct them as the _devops_ user.
 
+    devops@uranus $ sudo cp /etc/apache2/sites-available/secondhand-{staging,production}.conf 
+
+We need to determine which _Ruby_ will be used as the `PassengerRuby`. As we run the application as the _secondhand_ user, we will determin the `PassengerRuby` as the _secondhand_ user. We change identity with `sudo -u secondhand -H bash -l` and then invoke `passenger-config about ruby-command`. We get an output similar to this (only showing the relevant part)
+
+    passenger-config was invoked through the following Ruby interpreter:
+      Command: /home/secondhand/.rbenv/versions/2.7.8/bin/ruby
+      Version: ruby 2.7.8p225 (2023-03-30 revision 1f4d455848) [x86_64-linux]
+      To use in Apache: PassengerRuby /home/secondhand/.rbenv/versions/2.7.8/bin/ruby
+
+With this information at hand, we change the content of `/etc/apache2/sites-available/secondhand-production.conf` that it looks like so 
+
+    <VirtualHost *:8081>                                                # our production server can be reached under port 8081
+       ServerName production.secondhand.uranus                          # the url to reach the server
+    
+       DocumentRoot /var/www/secondhand/production/public/              # where our application lives
+    
+       PassengerRuby /home/secondhand/.rbenv/versions/2.7.8/bin/ruby    # the Ruby interpreter, determined with 'passenger-config about ruby-command'
+    
+       <Directory /var/www/secondhand/production/public>
+         AllowOverride all
+         Options -MultiViews
+         Order allow,deny
+         Allow from all
+         Require all granted
+       </Directory>
+       RackEnv production                                               # we run this server in the production environment
+    </VirtualHost>
+
+We need to enable the newly created virtual host with `a2ensite secondhand-production.conf`. And restart _Apache_ with `sudo systemctl reload apache2.service` and `sudo apache2ctl restart`. 
+
+### Checking up the application 
+
+Now the server should be running and serving _Secondhand_ on port `8081`. We can check this by starting up a browser and enter `uranus:8081` or if we have added to our `/etc/hosts` the assignment `192.168.178.164 production.secondhand.uranus`, we can also access the application with `production.secondhand.uranus:8081`.
+
+If anything is wrong we will be greeted with the web page saying "something went wrong". In that case we look into the log-file at `/var/wwww/secondhand/production/log/production.log`. There we will get the information what went wrong and can then work with it to fix it.
 
 Deploying updates for Secondhand
 --------------------------------
@@ -773,11 +827,18 @@ It should be straight forward and the condensed deployment of the initial deploy
 
 `cd` into the web directory where our application lives
 
-    $ cd /var/www/secondhand 
+    $ cd /var/www/secondhand/staging 
 
 `pull` the new version from _Github_ 
 
     $ git pull 
+
+Note: If you get an error after `git pull` saying at the end 
+
+    Please commit your changes or stash them before you merge.
+    Aborting
+
+Then you have made changes. Usually these changes are only for testing purposes. If not follow the advice. If you are sure that you don't need them then do `git reset --hard HEAD` with a following `git pull`.
 
 `rbenv` the _Ruby_ version the application runs with. If the wrong _Ruby_ version is selected, you will be hinted. The version is stored in the `.ruby-version`
 
@@ -785,14 +846,13 @@ It should be straight forward and the condensed deployment of the initial deploy
 
 `bundle` install the required `gem`s without test and development
 
-    $ bundle config --local without test development
-    $ bundle install 
+    $ bundle install --without test development
 
 `precompile` the assets 
 
-    $ bundle exec rake assets:precompile RAILS_ENV=production
+    $ bundle exec rake assets:precompile RAILS_ENV=production # use the environment you are in (production, staging, beta, backup)
 
-`migrate` the database 
+`migrate` the database if you don't have made changes to the database, this won't do nothing 
 
     $ bundle exec rake db:migrate RAILS_ENV=production
 
