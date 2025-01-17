@@ -862,6 +862,33 @@ Then you have made changes. Usually these changes are only for testing purposes.
 
 Now we should be ready to deploy remotely with _Capistrano_.
 
+Replacement strategy for old with new production server
+-------------------------------------------------------
+
+Before updating the server hardware of the production server. I set up a new production server hardware with the newest OS and updated software. On the new server hardware I make _Secondhand_ run.
+
+### Hardware setup 
+
+| Server Name | Old Role   | New Role    | Description
+| ----------- | ---------- | ----------- | -----------
+| mercury     | production | backbackup  | After uranus is working, the hardware will be updated
+|             |            | staging     | Takes over the role staging from uranus
+|             |            | beta        | Takes over the role beta from uranus 
+| jupiter     | backup     | backup      | Will be kept as is and used together with uranus as backup server
+|             |            |             | When mercury is updated and can take over the backup role jupiter will be updated
+| uranus      | staging    | production  | 
+|             | beta       |             | 
+
+### Port Assignment 
+
+| Role       | URL                                   | Port | Description
+| ---------- | ------------------------------------: | ---- | -----------
+| production |         secondhand.sugaryourcoffee.de | 8080 | Public URL pointing to port 8080
+| backup     |                                       | 8081 | If the production server drops out, URL will be forwarded to port 8080
+| backbackup |                                       | 8082 | If the production and backup server drops out, URL will be forwarded to port 8082
+| staging    | staging.secondhand.sugaryourcoffee.de | 8083 | Public URL for bigger group of people for load testing
+| beta       |    beta.secondhand.sugaryourcoffee.de | 8084 | Public URL for small group of people testing new versions for correctness
+
 Setting up the client machine
 =============================
 On the client machine (ellesmere) we do following configuration
