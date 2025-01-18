@@ -886,8 +886,8 @@ Before updating the server hardware of the production server. I set up a new pro
 | production |         secondhand.sugaryourcoffee.de | 8080 | Public URL pointing to port 8080
 | backup     |                                       | 8081 | If the production server drops out, URL will be forwarded to port 8080
 | backbackup |                                       | 8082 | If the production and backup server drops out, URL will be forwarded to port 8082
-| staging    | staging.secondhand.sugaryourcoffee.de | 8083 | Public URL for bigger group of people for load testing
-| beta       |    beta.secondhand.sugaryourcoffee.de | 8084 | Public URL for small group of people testing new versions for correctness
+| staging    | staging-secondhand.sugaryourcoffee.de | 8083 | Public URL for bigger group of people for load testing
+| beta       |    beta-secondhand.sugaryourcoffee.de | 8084 | Public URL for small group of people testing new versions for correctness
 
 Setting up the client machine
 =============================
