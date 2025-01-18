@@ -834,14 +834,14 @@ It should be straight forward and the condensed deployment of the initial deploy
     $ git pull 
 
 ----------------------------------------------------------------
-|
-| Note: If you get an error after `git pull` saying at the end 
-|
-|    `Please commit your changes or stash them before you merge.`
-|    `Aborting`
-|
-| Then you have made changes. Usually these changes are only for testing purposes. If not follow the advice. If you are sure that you don't need them then do `git reset --hard HEAD` with a following `git pull`.
-|
+
+ Note: If you get an error after `git pull` saying at the end 
+
+    Please commit your changes or stash them before you merge.
+    Aborting
+
+Then you have made changes. Usually these changes are only for testing purposes. If not follow the advice. If you are sure that you don't need them then do `git reset --hard HEAD` with a following `git pull`.
+
 ----------------------------------------------------------------
 
 `rbenv` the _Ruby_ version the application runs with. If the wrong _Ruby_ version is selected, you will be hinted. The version is stored in the `.ruby-version`
