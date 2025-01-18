@@ -72,7 +72,7 @@ replication.
 Copy _source_ database to the _replica_ database
 ------------------------------------------------
 
-We dump the production database and then copy the dump file from the master to
+We dump the production database and then copy the dump file from the _source_ to
 the _replica_ server. On the _replica_ server we restore the dump file into the _replica_
 database.
 
@@ -85,7 +85,7 @@ database.
 Configure the MySQL replica
 ---------------------------
 
-We first check that we can access the master from the _replica_ server.
+We first check that we can access the _source_ from the _replica_ server.
 
     development$ ssh replica
     replica$ mysql -ureplicant -preplicant_pass -h192.168.178.164 --port 3306 \
@@ -121,7 +121,7 @@ effect
 
     replica$ sudo systemctl restart mysql
 
-Now in MySQL we tell the slave where to find the master server and with which
+Now in MySQL we tell the slave where to find the _source_ server and with which
 user to connect as well as additional information necessary for syncing the database.
 
 To get the information on the current `log_file` and the `log_pos` we retrieve this on the _source_ in the MySQL CLI with 
@@ -194,19 +194,19 @@ We can check the _replica_ status with
 
 Adding additional _replica_ s
 ------------------------
-If we want to have additional _replica_ s for replicating the master database then we
+If we want to have additional _replica_ s for replicating the _source_ database then we
 just follow the steps above, that is
 
-On the master server
+On the _source_ server
 
-* dump the master database and copy it to the new _replica_ server
+* dump the _source_ database and copy it to the new _replica_ server
 
 On the _replica_ server
 
 * set `server-id` to a unique positive integer and set the bind-address to the
   _replica_ server's IP address. Both is done in /etc/mysql/my.cnf 
 * restart the MySQL server
-* configure the master server in mysql
+* configure the _source_ server in mysql
 * create the database in MySQL
 * restore the dumped database into MySQL
 * start the replication
@@ -226,10 +226,10 @@ Changing IP address might happen when you retrieve your IP address from a new
 DHCP server.
 
 ### Fatal Error 1236
-The master and _replica_ might get out of sync if the _replica_ is shut down for a
+The _source_ and _replica_ might get out of sync if the _replica_ is shut down for a
 while or the connection is interrupted. As long as the `Master_Log_File` value
-on the _replica_ is still available on the master the _replica_ will catch up the
-master. If the `Master_Log_File` is overridden then `show slave status\G`
+on the _replica_ is still available on the _source_ the _replica_ will catch up the
+_source_. If the `Master_Log_File` is overridden then `show slave status\G`
 will have the value `Last_IO_Errno: 1236` and the `Last_IO_Error: Got fatal
 error 1236 from master when reading data from binary log: 'Could not find first log file name in binary log index file'`. It might help to reset the
 _replica_ with 
@@ -239,9 +239,9 @@ _replica_ with
     mysql> start slave;
     mysql> show slave status\G;
 
-If the error is gone. The _replica_ might be gradually synced with the master. If
+If the error is gone. The _replica_ might be gradually synced with the _source_. If
 data is not propperly synced then dump the database on the server and restore
-it on the _replica_ as shown [Copy master database to the replica database](#copy-master-database-to-the-replica-database) and in [Restore database on replica server](#restore-database-on-replica-server).
+it on the _replica_ as shown [Copy source database to the replica database](#copy-source-database-to-the-replica-database) and in [Restore database on replica server](#restore-database-on-replica-server).
 
 ### Last_SQL_Errno: 1133
 The error message
@@ -305,4 +305,4 @@ Sources
 * [MySQL replication - YouTube](https://www.youtube.com/watch?v=JXDuVypcHNA)
 * [High Performance MySQL - O'Reilly](http://shop.oreilly.com/product/0636920022343.do)
 * [Deploying Rails Applications - Pragmatic Programmer](https://pragprog.com/book/cbdepra/deploying-rails)
-
+* [How to set up replication in MySQL](https://www.digitalocean.com/community/tutorials/how-to-set-up-replication-in-mysql)
