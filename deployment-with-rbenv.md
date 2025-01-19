@@ -424,7 +424,7 @@ The part that is interesting for the next step is this:
 
 So we have the database `secondhand_staging` created, we have the environment for `staging` set. Now we can create the tables for our database.
 
-    $ rake db:setup RAILS_ENV="staging"
+    $ rake db:migrate RAILS_ENV="staging"
     secondhand_staging already exists
     -- create_table("carts", {:force=>true})
        -> 0.3473s
@@ -467,7 +467,7 @@ So we have the database `secondhand_staging` created, we have the environment fo
 
 If it happens that the password in the `config/database.yml` file doesn't match with the one we have given when we created the user, then you get a error message like this 
 
-    $ rake db:setup RAILS_ENV="staging"
+    $ rake db:migrate RAILS_ENV="staging"
     WARNING: MYSQL_OPT_RECONNECT is deprecated and will be removed in a future version.
     Access denied for user 'pierre'@'localhost' (using password: YES)Please provide the root password for your MySQL installation
     >
