@@ -34,16 +34,16 @@ Then after the installation is finished and logged in run
 # Install Ruby on Rails server environment
 
 1. Install Apache 2
-2. Create an Secondhand application owner
+2. Create a Secondhand application user
 3. Create the application directory
 4. Install Git
-5. Install rbenv
 6. Install node.js
+5. Install rbenv to manage Ruby
+9. Install MySQL
 7. Deploy Secondhand
-8. Install MySQL
-9. Install Passenger
+8. Install Passenger
 10. Configure Apache 2
-11. Install Posfix
+11. Install Postfix
 12. Setup printer
 
 ## Install Apache 2 
@@ -103,23 +103,31 @@ We can install git with
 
     $ sudo install git-all 
 
-## Install rbenv to manage Ruby
-
-For the description on how to install rbenv I want to refer to [install rbenv and ruby](installing-rbenv-and-ruby.md).
-
 ## Install node.js 
 
 The next step needs `node.js` installed for the assets to run 
 
     $ sudo apt install nodejs 
 
-## Clone Secondhand into the project directory 
+## Install rbenv to manage Ruby
+
+For the description on how to install rbenv I want to refer to [install rbenv and ruby](installing-rbenv-and-ruby.md).
+
+## Install MySQL
+
+We have to install MySQL and create the database. Make sure not to only install
+the _mysql-server_ but also the _libmysqlclient-dev_ otherwise bundler will fail
+to install the _mysql2_ gem.
+
+    $ sudo apt-get install mysql-server libmysqlclient-dev
+
+## Deploy Secondhand
 
 Change into the project directory and clone the project from Git 
 
     $ sudo -u secondhand -H bash -l 
     $ cd /var/www/secondhand/backup/ 
-    $ git clone https://github.com/sugaryourcoffee/secondhand.git 
+    $ git clone https://github.com/sugaryourcoffee/secondhand.git .
 
 Copy the `database.yml` and `secret_token.rb` from the development machine to the server
 
@@ -128,6 +136,7 @@ Copy the `database.yml` and `secret_token.rb` from the development machine to th
 Back on the server 
 
     $ mv database.yml /var/www/secondhand/backup/config/.
+    $ mv secret_token.rb /var/www/secondhand/backup/config/intializers/.
 
 Then check the required Ruby version 
 
@@ -153,19 +162,23 @@ With bundler installed we install the rest of the gems
 
 Precompile the assets with 
 
-    $ mv secret_token.rb /var/www/secondhand/backup/config/intializers/.
+    $ bundle exec rake assets:precompile RAILS_ENV=backup
 
-## Install MySQL
+### Database management
 
-We have to install MySQL and create the database. Make sure not to only install
-the _mysql-server_ but also the _libmysqlclient-dev_ otherwise bundler will fail
-to install the _mysql2_ gem.
+We have three stages towards production: beta, staging and production. The production version has an acompanying backup version, which is replicating the production database, and can step in in case of a breakdown of the production server.
 
-    $ sudo apt-get install mysql-server libmysqlclient-dev
+This breaks down to three scenarios:
 
-Next we have to create a database
+1. We have a pristine state and start with a blank database 
+2. We are upgrading to a new Secondhand version and already have an existing database 
+3. We want to setup a backup server and use the existing production database 
 
-    devops@uranus $ sudo mysql -uroot -p 
+We describe the implementation of each of the scenarios 
+
+What is common for scenario 1. and 3., we need to create the database and a database user that can access the database from Secondhand.
+
+    $ sudo mysql -uroot -p 
     Enter password
     mysql> create database secondhand_production default character set utf8mb4 collate utf8mb4_0900_ai_ci;
     Query OK, 1 row affected (0.08 sec)
@@ -174,7 +187,29 @@ Next we have to create a database
     mysql> grant all privileges on secondhand_production.* to 'secondhand'@'localhost';
     Query OK, 0 rows affected (0.06 sec)
     mysql> exit 
- 
+
+1. Start from a pristine state 
+
+If we start from scratch then we run the rake command that creates the tables 
+
+    $ bundle exec rake db:migrate RAILS_ENV="production"
+
+The `RAILS_ENV` we set accordingly to the environment we want install the database for.
+
+2. Uprgrading Secondhand with existing database 
+
+If we have Secondhand running with an existing database, then we just run 
+
+    $ bundle exec rake db:migrate RAILS_ENV="production" 
+
+This only takes effect if we have changed our database tables.
+
+3. We want to setup a backup server and replicate the existing production database 
+
+In this scenario we copy the production database to the backup server and restore the database to MySQL. We configure MySQL to replicate the database from the production to the backup server's database. How replication is configured is described in [MySQL 8 failover](MySQL-8-failover.md).
+
+Note: Scenario 3. is also valid for a staging and a beta server if we just want to have a database with data we can test with.
+
 ## Install Passenger
 
 First we install the PGP key and add HTTPS support for APT
@@ -194,40 +229,6 @@ Now we run `sudo apt-get update` and install install the _passenger_ and _Apache
 With installation a _.conf_ and _.load_ file is provided and stored to _Apaches_'s module directory located at `/etc/apache2/mods-available`.
 
 Next we have to make _Apache_ aware of the _passenger_ configuration files with `sudo a2enmod passenger` and then restart _Apache_ with `sudo apache2ctl restart`.
-
-     $ gem install passenger
-     $ passenger-install-apache2-module
-
-There might be missing some modules and the installer will tell which are
-missing and have to be installed.
-
-    $ sudo apt-get install libcurl4-openssl-dev apache2-threaded-dev \
-    libapr1-dev libaprutil1-dev
-
-Even though the installer might tell you to install `apache2-threaded-dev` in
-Ubuntu 16.04 you have to use `apache2-dev`.
-
-After `passenger-install-apache2-module` has run you will be prompted with
-following message:
-
-    Please edit your Apache configuration file, and add these lines:
-    LoadModule passenger_module \
-    /home/pierre/.rvm/gems/ruby-2.0.0-p648@rails4013/gems/passenger-5.0.30\
-    /buildout/apache2/mod_passenger.so
-    <IfModule mod_passenger.c>
-      PassengerRoot /home/pierre/.rvm/gems/ruby-2.0.0-p648@rails4013/gems\
-      /passenger-5.0.30
-      PassengerDefaultRuby /home/pierre/.rvm/gems/ruby-2.0.0-p648@rails4013\
-      /wrappers/ruby
-    </IfModule>
-    
-    After you restart Apache, you are ready to deploy any number of web
-    applications on Apache, with a minimum amount of configuration!
-    
-    Press ENTER when you are done editing.
-
-Add the above code snippet to `/etc/apache2/conf-available/passenger.conf` and 
-run `$ sudo a2enconf passenger` and `service apache2 reload`.
 
 ## Configure Apache 2
 Create a virtual host in `/etc/apache2/sites-available/secondhand.conf`
