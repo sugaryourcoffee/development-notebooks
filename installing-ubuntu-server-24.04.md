@@ -188,6 +188,19 @@ What is common for scenario 1. and 3., we need to create the database and a data
     Query OK, 0 rows affected (0.06 sec)
     mysql> exit 
 
+Important: we have to adjust the database-name, the user and the password in `/var/www/secondhand/backup/config/database.yml` to the settings we have created the database and user in MySQL. The section for back should look like this 
+
+    backup:
+      adapter: mysql2
+      encoding: utf8
+      reconnect: false
+      database: secondhand_production # the database we've created in MySQL
+      pool: 5
+      timeout: 5000
+      username: secondhand            # the user we have created with all rights on the database
+      password: password              # the password of secondhand user
+      host: localhost
+
 1. Start from a pristine state 
 
 If we start from scratch then we run the rake command that creates the tables 
@@ -226,15 +239,17 @@ Now we run `sudo apt-get update` and install install the _passenger_ and _Apache
 
     sudo apt-get install -y libapache2-mod-passenger
 
-With installation a _.conf_ and _.load_ file is provided and stored to _Apaches_'s module directory located at `/etc/apache2/mods-available`.
+### Configure Passenger for Apache 2
+
+With the Passenger installation a _.conf_ and _.load_ file is provided and stored to _Apaches_'s module directory located at `/etc/apache2/mods-available`.
 
 Next we have to make _Apache_ aware of the _passenger_ configuration files with `sudo a2enmod passenger` and then restart _Apache_ with `sudo apache2ctl restart`.
 
 ## Configure Apache 2
 
-We describe how to setup a backup server, but it can be applied accordingly to a production, staging and beta server accordingly. A lengthy deployment walkthrough for the different scenarios can be found in [Deployment with rbenv](deployment-with-rbenv.md).
+Even though we describe how to setup a backup server, it can be applied to a production, staging and beta server accordingly. A lengthy deployment walkthrough for the different scenarios can be found in [Deployment with rbenv](deployment-with-rbenv.md).
 
-We create a virtual host in `/etc/apache2/sites-available/secondhand-backup.conf`. In the virtual host we need the information 
+For the backup server we create a virtual host in `/etc/apache2/sites-available/secondhand-backup.conf`. In the virtual host we need the information 
 
 * The application directory we have created in a previous step, which is in `/var/www/secondhand/backup/`. We have to point the document root to the `public` directory.
 * The Ruby version that is running the application. This can be determined with following command. 
@@ -267,4 +282,21 @@ Our VirtualHost now looks like this
       RackEnv backup
     </VirtualHost>
 
-We need to enable the newly created virtual host with `a2ensite secondhand-backup.conf`. And restart _Apache_ with `sudo systemctl reload apache2.service` and `sudo apache2ctl restart`. 
+We need to enable the newly created virtual host with `a2ensite secondhand-backup.conf`. 
+
+We also have to tell Apache 2 to listen on port 8081. We add `Listen 8081` to `/etc/apache2/ports.conf`that it looks like so
+
+    Listen 8081
+    Listen 80 
+
+And restart _Apache_ with `sudo systemctl reload apache2.service` and `sudo apache2ctl restart`. 
+
+# Checkup Secondhand 
+
+Now we should be all set to run Secondhand backup with `http://backup.secondhand.jupiter`. If we have made any changes to Secondhand, we need to restart it with `touch /var/www/secondhand/backup/tmp/restart.txt`.
+
+If the message _something went wrong_ is displayed. We can check the log files at 
+
+* /var/www/secondhand/backup/log/backup.log 
+* /var/log/mysql/error.log 
+
