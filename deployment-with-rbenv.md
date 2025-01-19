@@ -4,7 +4,7 @@ We already have described how to deploy *Secondhand* with `rvm-capistrano` and `
 
 [deployment](https://github.com/sugaryourcoffee/secondhand/blob/master/doc/deployment.md). 
 
-With the upgrade to Rails 4.2 I have changed from `rvm` to `rbenv`. That is, that this document describes how to do the deployment with `capistrano` without `rvm`, but `rbenv`.
+With the upgrade to Rails 4.2 I have changed from `rvm` to `rbenv`. That is, that this document describes how to do the deployment without `rvm`, but `rbenv`.
 
 In this document we are deploying *Secondhand* with
 
@@ -764,7 +764,7 @@ We have created a staging database. We now create a _MySQL_ user _secondhand_ an
 
 Now instead of running the the migrations (`bundle exec rake db:migrate RAILS_ENV=production`), we rather copy the database from the current production server.
 
-    devops@mercury $ mysqldump -uroot -p --quick --single-transaction --triggers --master-data secondhand_production | gzip > secondhand-production.sql.gz 
+    devops@mercury $ mysqldump -uroot -p --quick --single-transaction --triggers --source-data secondhand_production | gzip > secondhand-production.sql.gz 
     devops@mercury $ scp secondhand-production.sql.gz secondhand@uranus:.
 
 Next we restore the database to our database on _uranus_.
@@ -893,22 +893,4 @@ Before updating the server hardware of the production server. I set up a new pro
 | staging    | staging-secondhand.sugaryourcoffee.de | 8083 | Public URL for bigger group of people for load testing
 | beta       |    beta-secondhand.sugaryourcoffee.de | 8084 | Public URL for small group of people testing new versions for correctness
 
-Setting up the client machine
-=============================
-On the client machine (ellesmere) we do following configuration
-
-* Setup Capistrano
-* Assign an URI to the beta, staging and production server
-* Add a rails beta and staging environment
-* Add a beta and staging group to the database.yml file
-
-Install Capistrano
-------------------
-We add Capistrano to the Gemfile [Gemfile](https://github/sugaryourcoffee/secondhand/blob/master/Gemfile)
-
-    gem 'capistrano'
-
-and we remove `rvm-capistrano` from the Gemfile.
-
-    # gem 'rvm-capistrano'
 
