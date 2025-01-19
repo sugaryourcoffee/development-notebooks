@@ -11,12 +11,11 @@ This document is briefly describing how to install _rbenv_ and _Ruby_ with _rben
 Install rbenv
 -------------
 
-Before we install _rbenv_ we make sure we have all dependencies install ed
+Before we install _rbenv_ we make sure we have all dependencies installed
 
     $ apt-get install autoconf patch build-essential rustc libssl-dev libyaml-dev libreadline6-dev zlib1g-dev libgmp-dev libncurses5-dev libffi-dev libgdbm6 libgdbm-dev libdb-dev uuid-dev
 
 To install _rbenv_ we can do with `sudo apt install rbenv`. But this will not provide the latest version. We therefore will install from _rbenv_'s git repository by cloning the _rbenv_ into `~/.rbenv`
-
 
     $ git clone https://github.com/rbenv/rbenv.git ~/.rbenv
 
