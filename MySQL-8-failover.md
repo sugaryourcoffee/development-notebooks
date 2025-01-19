@@ -3,7 +3,7 @@ Fail over MySQL 8 and Rails
 
 We have two machines with each having a MySQL server and the Rails application
 running _Secondhand_. One of the servers is the _source_ with IP address 
-192.168.178.164 the other is the _replica_ with the IP address 192.168.178.89. 
+192.168.178.164 the other is the _replica_ with the IP address 192.168.178.192. 
 The _source_ database will be mirrored to the _replica_ database.
 In case our _source_ is crashing we want to switch over to the _replica_ server. 
 
@@ -22,7 +22,6 @@ assuming we have both servers running with MySQL and Secondhand
   * Check the connection from the _replica_ to the _source_ database
   * On the MySQL _replica_ set the server ID and bind address
   * Configure the _source_ server
-  * Add same user on _replica_ with access rights for _source_ replication
 * Restore the _source_ database on the MySQL _replica_
 * Start replication on the MySQL _replica_
 
@@ -78,7 +77,7 @@ database.
 
     development$ ssh source
     source$ mysqldump -uroot -p --quick --single-transaction --triggers \
-      --master-data secondhand_production | gzip > secondhand-repl.sql.gz
+      --source-data secondhand_production | gzip > secondhand-repl.sql.gz
     source$ scp secondhand-repl.sql.gz user@replica:secondhand-repl.sql.gz
     source$ exit
 
@@ -88,8 +87,9 @@ Configure the MySQL replica
 We first check that we can access the _source_ from the _replica_ server.
 
     development$ ssh replica
-    replica$ mysql -ureplicant -preplicant_pass -h192.168.178.164 --port 3306 \
+    replica$ mysql -ureplicant -p -h192.168.178.164 --port 3306 \
     -e "show databases"
+    Enter password: replicant_pass
 
 This should list the databases on the server.
 
@@ -101,7 +101,7 @@ by setting the *server-id* and the *bind-address* of the _replica_
 We adjust mysqld.cnf to meet the settings of the _source_ database
 
     server-id = 2
-    bind-address = 192.168.178.89
+    bind-address = 192.168.178.192
     log_bin = /var/log/mysql/mysql-bin.log
     binlog_do_db = secondhand_production
     relay_log = /var/log/mysql/mysql-relay-bin
@@ -136,13 +136,14 @@ To get the information on the current `log_file` and the `log_pos` we retrieve t
 
 we use this information for `master_log_file` and `master_log_pos` respectively
 
-    uranus$ mysql -uroot -p
-    mysql> change master to
-        -> master_host='192.168.178.164',
-        -> master_user='replicant',
-        -> master_password='replicant_pass',
-        -> master_log_file='mysql-bin.000001',
-        -> master_log_pos=1714;
+    $ mysql -uroot -p
+    mysql> change replication source to 
+        -> source_host='192.168.178.164', 
+        -> source_user='replicant',
+        -> source_password='replicant_pass',
+        -> source_log_file='mysql-bin.000004', 
+        -> source_log_pos=157;
+    Query OK, 0 rows affected, 2 warnings (0.23 sec)
 
 We can monitor more detailed information on what is MySQL doing by monitoring the `/var/log/mysql/error.log` with 
 
@@ -172,7 +173,7 @@ Before we restore the database we have to create the database where we want to
 restore it to
 
     replica$ mysql -uroot -p
-    mysql> create database secondhand_production default character set utf8;
+    mysql> create database secondhand_production default character set utf8mb4 collate utf8mb4_0900_ai_ci;
     mysql> grant all privileges to 'pierre'@'localhost' identified by 'secret';
     mysql> exit
 
@@ -186,14 +187,14 @@ Start replication
 On the _replica_ server uranus we start the replication
 
     uranus$ mysql -uroot -p
-    mysql> start slave;
+    mysql> start replica;
 
 We can check the _replica_ status with
 
-    mysql> show slave status\G;
+    mysql> show replica status\G;
 
 Adding additional _replica_ s
-------------------------
+-----------------------------
 If we want to have additional _replica_ s for replicating the _source_ database then we
 just follow the steps above, that is
 
@@ -204,7 +205,7 @@ On the _source_ server
 On the _replica_ server
 
 * set `server-id` to a unique positive integer and set the bind-address to the
-  _replica_ server's IP address. Both is done in /etc/mysql/my.cnf 
+  _replica_ server's IP address. Both is done in /etc/mysql/mysql.conf.d/mysqld.cnf 
 * restart the MySQL server
 * configure the _source_ server in mysql
 * create the database in MySQL
@@ -225,7 +226,9 @@ itself.
 Changing IP address might happen when you retrieve your IP address from a new
 DHCP server.
 
-### Fatal Error 1236
+### MySQL 5.5 Errors 
+
+#### Fatal Error 1236
 The _source_ and _replica_ might get out of sync if the _replica_ is shut down for a
 while or the connection is interrupted. As long as the `Master_Log_File` value
 on the _replica_ is still available on the _source_ the _replica_ will catch up the
@@ -243,7 +246,7 @@ If the error is gone. The _replica_ might be gradually synced with the _source_.
 data is not propperly synced then dump the database on the server and restore
 it on the _replica_ as shown [Copy source database to the replica database](#copy-source-database-to-the-replica-database) and in [Restore database on replica server](#restore-database-on-replica-server).
 
-### Last_SQL_Errno: 1133
+#### Last_SQL_Errno: 1133
 The error message
     Last_SQL_Error: Error 'Can't find any matching row in the user table' on 
     query. Detault database: ''. Query: 'SET PASSWORD FOR 'repl'@'%'='*....''
@@ -251,7 +254,7 @@ The error message
 indicates that on the _replica_ machine the user 'repl'@'%' is not set. The repl 
 user needs to be set on each of the machines that are part of the replication.
 
-### Could not initialize master info structure 
+#### Could not initialize master info structure 
 
 If the following error message is raised while recovering the database to the backup server 
 
@@ -288,7 +291,7 @@ The we repeat the command to recover the database to the backup server database
     mysql> exit 
     Bye
 
-### Slave I/O: Got fatal error 1236 from master
+#### Slave I/O: Got fatal error 1236 from master
 
 This error might result from differnt MySQL versions, like replica runs version 5.5 and source runs 8.0 
 
@@ -300,9 +303,21 @@ This error might result from differnt MySQL versions, like replica runs version 
 
 A interims solution might be to that is setting the parameter `binlog_checksum=NONE` in the _source_'s configuration file `/etc/mysql/mysql.conf.d/mysqld.cnf`. Then the _source_ server has to be restarted with `sudo systemctl restart mysql` and the slave has to redo `mysql>change server to` with the new information about the `master_log_file` and `master_log_pos`.
 
+### MySQL 8 Errors
+
+#### ERROR 1872 (HY000): Replica failed to initialize applier metadata structure from the repository
+
+After stopping, resetting and restarting replica, ERROR 1200 (HY000) was raised.
+
+#### ERROR 1200 (HY000): The server is not configured as replica; fix in config file or with CHANGE REPLICATION SOURCE TO
+
+Redoing the `change replication source to` command it worked.
+
 Sources
 -------
+For MySQL 5.5
 * [MySQL replication - YouTube](https://www.youtube.com/watch?v=JXDuVypcHNA)
 * [High Performance MySQL - O'Reilly](http://shop.oreilly.com/product/0636920022343.do)
 * [Deploying Rails Applications - Pragmatic Programmer](https://pragprog.com/book/cbdepra/deploying-rails)
+For MySQL 8
 * [How to set up replication in MySQL](https://www.digitalocean.com/community/tutorials/how-to-set-up-replication-in-mysql)
