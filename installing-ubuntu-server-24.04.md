@@ -43,8 +43,8 @@ Then after the installation is finished and logged in run
 7. Deploy Secondhand
 8. Install Passenger
 10. Configure Apache 2
-11. Install Postfix
-12. Setup printer
+11. Install Postfix for e-mail
+12. Install CUPS for printing
 
 ## Install Apache 2 
 
@@ -300,3 +300,7 @@ If the message _something went wrong_ is displayed. We can check the log files a
 * /var/www/secondhand/backup/log/backup.log 
 * /var/log/mysql/error.log 
 
+# Additonal installations 
+
+To install _Postfix_ to send e-mail [Postfix](postfix.md)
+To install _CUPS_ to print documents [CUPS](setup-cups-on-a-server.md)
