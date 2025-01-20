@@ -1,14 +1,16 @@
 Install and setup Postfix
 =========================
-To send email from apptrack we need to install a mail transfer agent (MTA). On
-Ubuntu the application at hand ist Postfix. This document describes how to 
-install and setup Postfix to be used from a Rails application.
+
+To send email from a web applications we need to install a mail transfer agent
+(MTA). On Ubuntu the application at hand ist Postfix. This document describes
+how to install and setup Postfix to be used from a Rails application.
 
 * Install Postfix
 * Configure Postfix
 
 Instal Postfix
 --------------
+
 First check if Postfix is installed
 
     $ dpkg -s postfix
@@ -32,13 +34,13 @@ to forward the emails.
 | Sattlite                |Only for outgoing email                             |
 | Local                   |Send emails only within LAN                         |
 
-In our case we want to use internet with *smart host*.
+In our case we want to use *Internet with smart host*.
 
 Next question is about your system mail name. For that use the name of your
 machine which is probably pre-selected in the input field.
 
 Now you have to provide your SMTP relay host. This now depends on your ISP. If
-your ISP is 1und1 add *smtp.1und1.de:587*. Port 587 is used for TLS encryption.
+your ISP is IONOS add *smtp.ionos.de:587*. Port 587 is used for TLS encryption.
 
 After you hit <ok> Postfix will get installed and you will see a lot of output.
 The intersting parts are explained below.
@@ -55,40 +57,68 @@ After installation you will get following information
     Postfix is now set up with a default configuration.  If you need to make
     changes, edit /etc/postfix/main.cf (and others) as needed.
 
-    After modifying main.cf, be sure to run '/etc/init.d/postfix reload' or run
-    'systemctl reload postfix'
+    After modifying main.cf, be sure to run 'systemctl reload postfix'
 
 Configure Postfix
 -----------------
+
+Files that need to be edited 
+
+* /etc/postfix/main.cf 
+* /etc/postfix/sasl_passwd 
+* /etc/postfix/generic 
+
 Now open */etc/postfix/main.cf* and add following lines
 
     smtp_sasl_auth_enable = yes
     smtp_sasl_password_maps = hash:/etc/postfix/sasl_passwd
     smtp_sasl_security_options = noanonymous
+    smtp_use_tls = yes 
+    smtp_generic_maps = hash://etc/postfix/generic
 
-Next create * sudo vi /etc/postfix/sasl\_passwd* and add your credentials
+Create `/etc/postfix/generics` and create mappings from local user mail
+addresses, to real addresses.
+ 
+    pierre@jupiter web@sugaryourcoffee.de 
+    root@jupiter web@sugaryourcoffee.de 
 
-    smtp.1und1.de web@sugaryourcoffee.de:my-very-secret-password
+Then create the `generic.db` file with 
+
+    sudo postmap /etc/postfix/generic
+    
+Next create `sudo vi /etc/postfix/sasl_passwd` and add your credentials
+
+    smtp.ionos.de web@sugaryourcoffee.de:my-very-secret-password
 
 One last step is to convert the passord file to the Postfix database format
 
     sudo postmap /etc/postfix/sasl_passwd
 
-Finally start reload Postfix configuration
+Finally reload the Postfix configuration
 
-    /etc/init.d/postfix reload or systemctl reload postfix
+    sudo systemctl reload postfix 
 
-To send e-mail from the command line install *mail-utils*
+Test sending e-mails
+--------------------
 
-    sudo apt-get install mail-utils
+To send e-mail from the command line install *mailutils*
+
+    sudo apt-get install mailutils
 
 This is the time to send your first email.
 
     mail -a From:web@sugaryourcoffee.de -s "My first e-mail" info@example.com
 
-If you don't receive emails then check the */var/log/mail.log* and */var/log/mail.err*. Or just issue the 'mail' command and see whether your mail has been rejected.
+If you don't receive emails then check the */var/log/mail.log* and
+*/var/log/mail.err*. Or just issue the 'mail' command and see whether your mail
+has been rejected.
 
-You could also leave off the *From* e-mail address and configure the sender gets automatically mapped to the right address. Standard bevaviour is that the sener e-mail address is created out of the user name and the computer name. If the user is pierre and the computer name is uranus, then the sender name will map to *pierre@uranus*. This will rejected from the ISP. To map the sender e-mail address add following to /etc/postfix/main.cf
+You could also leave off the *From* e-mail address and configure the sender gets
+automatically mapped to the right address. Standard bevaviour is that the sener
+e-mail address is created out of the user name and the computer name. If the
+user is pierre and the computer name is uranus, then the sender name will map to
+*pierre@uranus*. This will rejected from the ISP. To map the sender e-mail
+address add following to /etc/postfix/main.cf
 
     smtp-generic-maps = hash:/etc/postfix/generic
 
